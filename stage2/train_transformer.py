@@ -12,7 +12,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import PLAYLIST_TRACKS_PARQUET, TRACK_ID_MAP_PKL
+from config import FILTERED_TRACK_ID_MAP_PKL, PLAYLIST_TRACKS_PARQUET
 from stage2.dataset_sequence import SequenceDataset
 from stage2.models.transformer_model import TransformerModel
 
@@ -38,7 +38,7 @@ con.execute("PRAGMA memory_limit='16GB'")
 # =========================
 print("Loading track map...")
 
-with open(TRACK_ID_MAP_PKL, "rb") as f:
+with open(FILTERED_TRACK_ID_MAP_PKL, "rb") as f:
     track_map = pickle.load(f)
 
 vocab_size = len(track_map)

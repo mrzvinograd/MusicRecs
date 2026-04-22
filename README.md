@@ -29,8 +29,14 @@ Music recommendation project organized as a multi-stage pipeline.
 
 - Stage 0 training:
   `python stage0/train_track2vec.py`
+- Stage 0 map export:
+  `python stage0/extract_mapping.py`
+- Stage 0 artifact validation:
+  `python stage0/validate_artifacts.py`
 - Stage 1 training:
   `python stage1/train_two_tower.py`
+- Stage 1 candidate generation:
+  `python stage1/recommend_candidates.py --playlist "10000,1178,2779"`
 - Stage 2 training:
   `python stage2/train_transformer.py`
 - Stage 3 training:

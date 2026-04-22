@@ -12,7 +12,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import PLAYLIST_TRACKS_PARQUET, RANKING_MODEL_PT, TRACK_ID_MAP_PKL
+from config import FILTERED_TRACK_ID_MAP_PKL, PLAYLIST_TRACKS_PARQUET, RANKING_MODEL_PT
 from stage3.dataset_ranking import RankingDataset, ranking_collate
 from stage3.evaluate_ranking import evaluate_ranking
 from stage3.models.model_ranking import RankingModel
@@ -35,7 +35,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 
-with open(TRACK_ID_MAP_PKL, "rb") as f:
+with open(FILTERED_TRACK_ID_MAP_PKL, "rb") as f:
     track_map = pickle.load(f)
 
 vocab_size = len(track_map)

@@ -12,16 +12,16 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from config import (
+    FILTERED_TRACK_ID_MAP_PKL,
     RANKING_MODEL_PT,
     TRACK_EMBEDDINGS_NPY,
     TRACK_IDS_TXT,
-    TRACK_ID_MAP_PKL,
 )
 from stage3.models.model_ranking import RankingModel
 
 
 CHECKPOINT_PATH = RANKING_MODEL_PT
-TRACK_MAP_PATH = TRACK_ID_MAP_PKL
+TRACK_MAP_PATH = FILTERED_TRACK_ID_MAP_PKL
 EMBEDDING_FILE = TRACK_EMBEDDINGS_NPY
 EMBEDDING_IDS_FILE = TRACK_IDS_TXT
 
