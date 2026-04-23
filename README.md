@@ -47,6 +47,8 @@ Music recommendation project organized as a multi-stage pipeline.
   `python stage3/recommend_tracks.py --playlist "10000,1178,2779"`
 - End-to-end pipeline recommendations:
   `python stage3/recommend_pipeline.py --playlist "10000,1178,2779"`
+- End-to-end pipeline evaluation:
+  `python stage3/eval_pipeline.py`
 
 ## Notes
 

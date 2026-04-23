@@ -1,19 +1,14 @@
 import sys
 from pathlib import Path
 import argparse
-import pickle
-
-import numpy as np
-import torch
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import FILTERED_TRACK_ID_MAP_PKL, RANKING_MODEL_PT
 from stage1.candidate_generator import generate_stage1_candidates
-from stage3.models.model_ranking import RankingModel
+from stage3.pipeline import load_stage3_assets, rerank_candidates
 from utils.music_metadata import fetch_track_metadata
 
 
@@ -46,50 +41,6 @@ def parse_args():
     )
     return parser.parse_args()
 
-
-def build_stage3_playlist_indices(playlist_track_ids, filtered_track_map, pad_idx, max_len=20):
-    playlist_indices = [filtered_track_map[track_id] for track_id in playlist_track_ids if track_id in filtered_track_map]
-
-    if not playlist_indices:
-        raise ValueError("None of the provided playlist tracks were found in the stage3 filtered track map.")
-
-    playlist_indices = playlist_indices[-max_len:]
-
-    if len(playlist_indices) < max_len:
-        playlist_indices = [pad_idx] * (max_len - len(playlist_indices)) + playlist_indices
-
-    return playlist_indices
-
-
-def rerank_candidates(model, playlist_track_ids, candidate_track_ids, filtered_track_map, pad_idx, device):
-    playlist_indices = build_stage3_playlist_indices(
-        playlist_track_ids=playlist_track_ids,
-        filtered_track_map=filtered_track_map,
-        pad_idx=pad_idx,
-    )
-    candidate_indices = [filtered_track_map[track_id] for track_id in candidate_track_ids if track_id in filtered_track_map]
-
-    if not candidate_indices:
-        raise ValueError("No stage1 candidates were available in the stage3 filtered track map.")
-
-    playlist_tensor = torch.tensor([playlist_indices], dtype=torch.long, device=device)
-    candidate_tensor = torch.tensor([candidate_indices], dtype=torch.long, device=device)
-
-    with torch.no_grad():
-        scores = model(playlist_tensor, candidate_tensor).squeeze(0).cpu().numpy()
-
-    reverse_filtered_map = {idx: track_id for track_id, idx in filtered_track_map.items()}
-
-    ranked = np.argsort(-scores)
-    return [
-        {
-            "track_id": reverse_filtered_map[candidate_indices[pos]],
-            "score": float(scores[pos]),
-        }
-        for pos in ranked
-    ]
-
-
 args = parse_args()
 
 playlist_track_ids = [int(x.strip()) for x in args.playlist.split(",") if x.strip()]
@@ -102,32 +53,15 @@ stage1_candidates = generate_stage1_candidates(
 
 candidate_track_ids = [item["track_id"] for item in stage1_candidates]
 
-with open(FILTERED_TRACK_ID_MAP_PKL, "rb") as f:
-    filtered_track_map = pickle.load(f)
-
-checkpoint = torch.load(RANKING_MODEL_PT, map_location="cpu")
-model_kwargs = checkpoint.get(
-    "model_kwargs",
-    {
-        "vocab_size": checkpoint["vocab_size"],
-        "padding_idx": checkpoint["pad_idx"],
-    },
-)
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-model = RankingModel(**model_kwargs).to(device)
-model.load_state_dict(checkpoint["model_state_dict"])
-model.eval()
-pad_idx = model_kwargs["padding_idx"]
+stage3_assets = load_stage3_assets()
 
 ranked_candidates = rerank_candidates(
-    model=model,
+    model=stage3_assets["model"],
     playlist_track_ids=playlist_track_ids,
     candidate_track_ids=candidate_track_ids,
-    filtered_track_map=filtered_track_map,
-    pad_idx=pad_idx,
-    device=device,
+    filtered_track_map=stage3_assets["track_map"],
+    pad_idx=stage3_assets["pad_idx"],
+    device=stage3_assets["device"],
 )
 
 final_items = ranked_candidates[:args.top_k]
