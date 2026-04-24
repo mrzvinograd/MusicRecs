@@ -1,15 +1,15 @@
-import pickle
 import sys
 from pathlib import Path
 
 import duckdb
+import numpy as np
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import AUDIO_FEATURES_FILTERED_PARQUET, AUDIO_INDEX_PKL
+from config import AUDIO_FEATURES_FILTERED_PARQUET, AUDIO_FEATURES_NPY, AUDIO_ROWIDS_NPY
 
 
 FEATURE_COLUMNS = [
@@ -74,14 +74,22 @@ for idx, column in enumerate(FEATURE_COLUMNS):
 normalized_columns = ",\n".join(
     [
         (
-            f"(({cast_expr(column)} - {normalization[column][0]}) / {normalization[column][1]}) "
+            f"CAST((({cast_expr(column)} - {normalization[column][0]}) / {normalization[column][1]}) AS FLOAT) "
             f"AS {column}"
         )
         for column in FEATURE_COLUMNS
     ]
 )
 
-print("Pass 2/2: building normalized audio index...")
+print("Pass 2/2: streaming normalized audio features...")
+row_count = con.execute(
+    f"""
+    SELECT COUNT(*)
+    FROM read_parquet('{AUDIO_FEATURES_FILTERED_PARQUET.as_posix()}')
+    WHERE track_rowid IS NOT NULL
+    """
+).fetchone()[0]
+
 cursor = con.execute(
     f"""
     SELECT
@@ -89,10 +97,13 @@ cursor = con.execute(
         {normalized_columns}
     FROM read_parquet('{AUDIO_FEATURES_FILTERED_PARQUET.as_posix()}')
     WHERE track_rowid IS NOT NULL
+    ORDER BY track_rowid
     """
 )
 
-audio_index = {}
+all_rowids = np.empty((row_count,), dtype=np.int64)
+all_features = np.empty((row_count, len(FEATURE_COLUMNS)), dtype=np.float32)
+offset = 0
 
 while True:
     batch = cursor.fetchmany(BATCH_SIZE)
@@ -100,15 +111,18 @@ while True:
     if not batch:
         break
 
-    for row in batch:
-        track_rowid = int(row[0])
-        audio_index[track_rowid] = [float(value) for value in row[1:]]
+    rowids = np.asarray([row[0] for row in batch], dtype=np.int64)
+    features = np.asarray([row[1:] for row in batch], dtype=np.float32)
+    next_offset = offset + rowids.shape[0]
+    all_rowids[offset:next_offset] = rowids
+    all_features[offset:next_offset] = features
+    offset = next_offset
 
-print("Saving...")
+print("Saving compact audio feature arrays...")
 
-with open(AUDIO_INDEX_PKL, "wb") as f:
-    pickle.dump(audio_index, f, protocol=pickle.HIGHEST_PROTOCOL)
+np.save(AUDIO_ROWIDS_NPY, all_rowids)
+np.save(AUDIO_FEATURES_NPY, all_features)
 
 con.close()
 
-print(f"Done. Saved to {AUDIO_INDEX_PKL}")
+print(f"Done. Saved to {AUDIO_ROWIDS_NPY} and {AUDIO_FEATURES_NPY}")
