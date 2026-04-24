@@ -25,8 +25,6 @@ TRACK_ARTISTS_PARQUET = _prefer_local_raw("track_artists.parquet")
 ARTISTS_PARQUET = _prefer_local_raw("artists.parquet")
 ARTIST_GENRES_PARQUET = _prefer_local_raw("artist_genres.parquet")
 ALBUMS_PARQUET = _prefer_local_raw("albums.parquet")
-TRACK_FEATURE_STORE_PARQUET = _prefer_local_raw("track_feature_store.parquet")
-
 TOP_TRACKS_PARQUET = PROCESSED_DATA_DIR / "top_tracks.parquet"
 PLAYLIST_TRACKS_FILTERED_PARQUET = PROCESSED_DATA_DIR / "playlist_tracks_filtered.parquet"
 AUDIO_FEATURES_FILTERED_PARQUET = PROCESSED_DATA_DIR / "audio_features_filtered.parquet"
