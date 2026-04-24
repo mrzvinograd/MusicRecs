@@ -3,6 +3,7 @@ from pathlib import Path
 
 import duckdb
 import numpy as np
+from numpy.lib.format import open_memmap
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -28,7 +29,7 @@ FEATURE_COLUMNS = [
     "valence",
 ]
 
-BATCH_SIZE = 100_000
+BATCH_SIZE = 20_000
 
 
 def cast_expr(column):
@@ -101,8 +102,13 @@ cursor = con.execute(
     """
 )
 
-all_rowids = np.empty((row_count,), dtype=np.int64)
-all_features = np.empty((row_count, len(FEATURE_COLUMNS)), dtype=np.float32)
+rowid_memmap = open_memmap(AUDIO_ROWIDS_NPY, mode="w+", dtype=np.int64, shape=(row_count,))
+feature_memmap = open_memmap(
+    AUDIO_FEATURES_NPY,
+    mode="w+",
+    dtype=np.float32,
+    shape=(row_count, len(FEATURE_COLUMNS)),
+)
 offset = 0
 
 while True:
@@ -111,17 +117,16 @@ while True:
     if not batch:
         break
 
-    rowids = np.asarray([row[0] for row in batch], dtype=np.int64)
+    rowids = np.fromiter((row[0] for row in batch), dtype=np.int64, count=len(batch))
     features = np.asarray([row[1:] for row in batch], dtype=np.float32)
     next_offset = offset + rowids.shape[0]
-    all_rowids[offset:next_offset] = rowids
-    all_features[offset:next_offset] = features
+    rowid_memmap[offset:next_offset] = rowids
+    feature_memmap[offset:next_offset] = features
     offset = next_offset
 
 print("Saving compact audio feature arrays...")
-
-np.save(AUDIO_ROWIDS_NPY, all_rowids)
-np.save(AUDIO_FEATURES_NPY, all_features)
+rowid_memmap.flush()
+feature_memmap.flush()
 
 con.close()
 
