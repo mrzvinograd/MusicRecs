@@ -1,9 +1,8 @@
-import math
 import pickle
 import sys
 from pathlib import Path
 
-import pyarrow.parquet as pq
+import duckdb
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -29,80 +28,87 @@ FEATURE_COLUMNS = [
     "valence",
 ]
 
-BATCH_SIZE = 50_000
+BATCH_SIZE = 100_000
 
 
-def _safe_float(value):
-    if value is None:
-        return 0.0
-
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-    if math.isnan(value) or math.isinf(value):
-        return 0.0
-
-    return value
+def cast_expr(column):
+    return f"COALESCE(TRY_CAST({column} AS DOUBLE), 0.0)"
 
 
-print("Scanning filtered audio parquet...")
-parquet = pq.ParquetFile(AUDIO_FEATURES_FILTERED_PARQUET)
+con = duckdb.connect()
+con.execute("PRAGMA memory_limit='16GB'")
+con.execute("PRAGMA threads=4")
+con.execute("PRAGMA preserve_insertion_order=false")
+
+print("Loading filtered audio with DuckDB...")
+
+stats_query = ",\n".join(
+    [
+        f"AVG({cast_expr(column)}) AS {column}_mean,\n"
+        f"STDDEV_POP({cast_expr(column)}) AS {column}_std"
+        for column in FEATURE_COLUMNS
+    ]
+)
 
 print("Pass 1/2: computing normalization statistics...")
-feature_stats = {
-    column: {"count": 0, "sum": 0.0, "sum_sq": 0.0}
-    for column in FEATURE_COLUMNS
-}
-
-for batch in parquet.iter_batches(columns=["track_rowid", *FEATURE_COLUMNS], batch_size=BATCH_SIZE):
-    rows = batch.to_pylist()
-
-    for row in rows:
-        if row["track_rowid"] is None:
-            continue
-
-        for column in FEATURE_COLUMNS:
-            value = _safe_float(row.get(column))
-            stats = feature_stats[column]
-            stats["count"] += 1
-            stats["sum"] += value
-            stats["sum_sq"] += value * value
+stats_row = con.execute(
+    f"""
+    SELECT
+        {stats_query}
+    FROM read_parquet('{AUDIO_FEATURES_FILTERED_PARQUET.as_posix()}')
+    WHERE track_rowid IS NOT NULL
+    """
+).fetchone()
 
 normalization = {}
 
-for column, stats in feature_stats.items():
-    count = max(stats["count"], 1)
-    mean_value = stats["sum"] / count
-    variance = max((stats["sum_sq"] / count) - (mean_value * mean_value), 0.0)
-    std_value = math.sqrt(variance) if variance > 0.0 else 1.0
+for idx, column in enumerate(FEATURE_COLUMNS):
+    mean_value = float(stats_row[idx * 2] or 0.0)
+    std_value = float(stats_row[idx * 2 + 1] or 1.0)
+
+    if std_value == 0.0:
+        std_value = 1.0
+
     normalization[column] = (mean_value, std_value)
 
+normalized_columns = ",\n".join(
+    [
+        (
+            f"(({cast_expr(column)} - {normalization[column][0]}) / {normalization[column][1]}) "
+            f"AS {column}"
+        )
+        for column in FEATURE_COLUMNS
+    ]
+)
+
 print("Pass 2/2: building normalized audio index...")
+cursor = con.execute(
+    f"""
+    SELECT
+        CAST(track_rowid AS BIGINT) AS track_rowid,
+        {normalized_columns}
+    FROM read_parquet('{AUDIO_FEATURES_FILTERED_PARQUET.as_posix()}')
+    WHERE track_rowid IS NOT NULL
+    """
+)
+
 audio_index = {}
 
-for batch in parquet.iter_batches(columns=["track_rowid", *FEATURE_COLUMNS], batch_size=BATCH_SIZE):
-    rows = batch.to_pylist()
+while True:
+    batch = cursor.fetchmany(BATCH_SIZE)
 
-    for row in rows:
-        track_rowid = row["track_rowid"]
+    if not batch:
+        break
 
-        if track_rowid is None:
-            continue
-
-        normalized = []
-
-        for column in FEATURE_COLUMNS:
-            value = _safe_float(row.get(column))
-            mean_value, std_value = normalization[column]
-            normalized.append((value - mean_value) / std_value)
-
-        audio_index[int(track_rowid)] = normalized
+    for row in batch:
+        track_rowid = int(row[0])
+        audio_index[track_rowid] = [float(value) for value in row[1:]]
 
 print("Saving...")
 
 with open(AUDIO_INDEX_PKL, "wb") as f:
     pickle.dump(audio_index, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+con.close()
 
 print(f"Done. Saved to {AUDIO_INDEX_PKL}")
