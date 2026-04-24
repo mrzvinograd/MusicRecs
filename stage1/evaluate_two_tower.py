@@ -55,7 +55,7 @@ def evaluate_two_tower(
 
             playlist = playlist.unsqueeze(0).to(device)
             candidate_vectors = torch.tensor(
-                dataset.embeddings[candidates],
+                dataset.get_track_features(candidates),
                 dtype=torch.float32,
                 device=device,
             )

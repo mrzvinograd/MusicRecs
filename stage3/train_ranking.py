@@ -19,9 +19,9 @@ from stage3.models.model_ranking import RankingModel
 
 
 BATCH_SIZE = 64
-EPOCHS = 3
-MAX_STEPS = 10000
-NUM_NEG = 5
+EPOCHS = 6
+MAX_STEPS = 15000
+NUM_NEG = 8
 DB_PATH = str(PLAYLIST_TRACKS_PARQUET)
 EVAL_MOD = 20
 EVAL_REMAINDER = 0
@@ -101,7 +101,7 @@ for epoch in range(EPOCHS):
         track_map=track_map,
         pad_idx=pad_idx,
         k_values=(10,),
-        num_candidates=100,
+        num_candidates=200,
         num_samples=1000,
         batch_size=32,
         eval_mod=EVAL_MOD,

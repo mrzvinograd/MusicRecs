@@ -5,6 +5,7 @@ import torch
 
 from config import TRACK_EMBEDDINGS_NPY, TRACK2VEC_TRACK_MAP_PKL, TWO_TOWER_MODEL_PT
 from stage1.models.two_tower import TwoTowerModel
+from utils.audio_features import load_aligned_audio_features
 
 
 def load_stage1_assets(
@@ -21,6 +22,7 @@ def load_stage1_assets(
 
     reverse_track_map = {idx: track_id for track_id, idx in track_map.items()}
     embeddings = np.load(embeddings_path, mmap_mode="r")
+    audio_features = load_aligned_audio_features(track_map)
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
@@ -40,19 +42,29 @@ def load_stage1_assets(
         "device": device,
         "model": model,
         "embeddings": embeddings,
+        "audio_features": audio_features,
         "track_map": track_map,
         "reverse_track_map": reverse_track_map,
     }
 
 
-def build_playlist_tensor(playlist_ids, track_map, embeddings, max_len=20):
+def _combine_track_features(indices, embeddings, audio_features):
+    base = np.asarray(embeddings[indices], dtype=np.float32)
+
+    if audio_features is None:
+        return base
+
+    return np.concatenate([base, audio_features[indices]], axis=1)
+
+
+def build_playlist_tensor(playlist_ids, track_map, embeddings, audio_features, max_len=20):
     playlist_indices = [track_map[track_id] for track_id in playlist_ids if track_id in track_map]
 
     if not playlist_indices:
         raise ValueError("None of the provided playlist tracks were found in the stage1 track map.")
 
     playlist_indices = playlist_indices[-max_len:]
-    features = embeddings[playlist_indices]
+    features = _combine_track_features(playlist_indices, embeddings, audio_features)
 
     if len(features) < max_len:
         pad = np.zeros((max_len - len(features), features.shape[1]), dtype=np.float32)
@@ -75,6 +87,7 @@ def generate_stage1_candidates(
     model = assets["model"]
     device = assets["device"]
     embeddings = assets["embeddings"]
+    audio_features = assets["audio_features"]
     track_map = assets["track_map"]
     reverse_track_map = assets["reverse_track_map"]
 
@@ -82,6 +95,7 @@ def generate_stage1_candidates(
         playlist_ids=playlist_ids,
         track_map=track_map,
         embeddings=embeddings,
+        audio_features=audio_features,
         max_len=max_len,
     )
     playlist_tensor = playlist_tensor.to(device)
@@ -93,7 +107,11 @@ def generate_stage1_candidates(
 
     for start in range(0, embeddings.shape[0], chunk_size):
         stop = min(start + chunk_size, embeddings.shape[0])
-        chunk = torch.tensor(embeddings[start:stop], dtype=torch.float32, device=device)
+        chunk = torch.tensor(
+            _combine_track_features(np.arange(start, stop), embeddings, audio_features),
+            dtype=torch.float32,
+            device=device,
+        )
 
         with torch.no_grad():
             chunk_vec = model.encode_tracks(chunk)

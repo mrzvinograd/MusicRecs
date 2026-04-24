@@ -19,11 +19,11 @@ from stage1.models.two_tower import TwoTowerModel
 
 
 DEFAULT_BATCH_SIZE = 32
-DEFAULT_EPOCHS = 5
+DEFAULT_EPOCHS = 8
 DEFAULT_LR = 1e-4
-DEFAULT_MAX_STEPS = 10000
-DEFAULT_NEGATIVE_CANDIDATE_POOL = 512
-DEFAULT_EVAL_SAMPLES = 500
+DEFAULT_MAX_STEPS = 15000
+DEFAULT_NEGATIVE_CANDIDATE_POOL = 1024
+DEFAULT_EVAL_SAMPLES = 1000
 
 
 def parse_args():
@@ -56,7 +56,7 @@ train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
 eval_dataset = PlaylistDataset(return_target_idx=True)
 
 
-model = TwoTowerModel().to(device)
+model = TwoTowerModel(embed_dim=train_dataset.feature_dim).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 loss_fn = nn.BCEWithLogitsLoss()
@@ -84,7 +84,7 @@ for epoch in range(args.epochs):
             (args.negative_candidate_pool,),
         )
         candidates = torch.tensor(
-            train_dataset.embeddings[rand_idx],
+            train_dataset.get_track_features(rand_idx.tolist()),
             dtype=torch.float32,
             device=device,
         )
@@ -131,7 +131,7 @@ torch.save(
     {
         "model_state_dict": model.state_dict(),
         "model_kwargs": {
-            "embed_dim": 512,
+            "embed_dim": train_dataset.feature_dim,
             "hidden_dim": 256,
         },
     },

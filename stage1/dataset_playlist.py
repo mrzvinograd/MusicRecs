@@ -9,6 +9,7 @@ from config import (
     TRACK_EMBEDDINGS_NPY,
     TRACK2VEC_TRACK_MAP_PKL,
 )
+from utils.audio_features import load_aligned_audio_features
 
 
 class PlaylistDataset(torch.utils.data.IterableDataset):
@@ -37,6 +38,10 @@ class PlaylistDataset(torch.utils.data.IterableDataset):
         print("Loading track map...")
         with open(track_map_file, "rb") as f:
             self.track_map = pickle.load(f)
+
+        print("Loading aligned audio features...")
+        self.audio_features = load_aligned_audio_features(self.track_map)
+        self.feature_dim = self.embeddings.shape[1] + (0 if self.audio_features is None else self.audio_features.shape[1])
 
     def __iter__(self):
         print("Streaming playlists...")
@@ -95,16 +100,25 @@ class PlaylistDataset(torch.utils.data.IterableDataset):
         input_tracks = playlist_idx_list[:-1][-self.max_len:]
         target_idx = playlist_idx_list[-1]
 
-        features = self.embeddings[input_tracks]
+        features = self.get_track_features(input_tracks)
 
         if len(features) < self.max_len:
             pad = np.zeros((self.max_len - len(features), features.shape[1]), dtype=np.float32)
             features = np.vstack([pad, features])
 
         playlist_features = torch.tensor(features, dtype=torch.float32)
-        target_vec = torch.tensor(self.embeddings[target_idx], dtype=torch.float32)
+        target_vec = torch.tensor(self.get_track_features([target_idx])[0], dtype=torch.float32)
 
         if self.return_target_idx:
             return playlist_features, target_vec, torch.tensor(target_idx, dtype=torch.long)
 
         return playlist_features, target_vec
+
+    def get_track_features(self, indices):
+        base = np.asarray(self.embeddings[indices], dtype=np.float32)
+
+        if self.audio_features is None:
+            return base
+
+        audio = self.audio_features[indices]
+        return np.concatenate([base, audio], axis=1)
