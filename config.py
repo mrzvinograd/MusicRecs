@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -32,9 +32,11 @@ PLAYLIST_TRACKS_FILTERED_PARQUET = PROCESSED_DATA_DIR / "playlist_tracks_filtere
 AUDIO_FEATURES_FILTERED_PARQUET = PROCESSED_DATA_DIR / "audio_features_filtered.parquet"
 AUDIO_INDEX_PKL = PROCESSED_DATA_DIR / "audio_index.pkl"
 TRACK_ID_MAP_PKL = PROCESSED_DATA_DIR / "track_id_map.pkl"
+TRACK_SEARCH_INDEX_PARQUET = PROCESSED_DATA_DIR / "track_search_index.parquet"
 FILTERED_TRACK_ID_MAP_PKL = TRACK_ID_MAP_PKL
 RANKING_MODEL_PT = PROCESSED_DATA_DIR / "ranking_model.pt"
 TWO_TOWER_MODEL_PT = PROCESSED_DATA_DIR / "two_tower.pt"
+TRANSFORMER_MODEL_PT = PROCESSED_DATA_DIR / "transformer_model.pt"
 
 TRACK2VEC_MODEL = EMBEDDINGS_DIR / "track2vec.model"
 TRACK2VEC_SYN1NEG = EMBEDDINGS_DIR / "track2vec.model.syn1neg.npy"

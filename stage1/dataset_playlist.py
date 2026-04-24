@@ -20,28 +20,29 @@ class PlaylistDataset(torch.utils.data.IterableDataset):
         track_map_file=TRACK2VEC_TRACK_MAP_PKL,
         max_len=20,
         return_target_idx=False,
+        duckdb_memory_limit="16GB",
+        duckdb_threads=2,
+        fetch_size=10000,
     ):
-        print("Connecting to DuckDB...")
-
-        self.con = duckdb.connect(database=":memory:")
-        self.con.execute("PRAGMA memory_limit='8GB'")
-        self.con.execute("PRAGMA threads=4")
-
         self.playlist_parquet = str(playlist_parquet)
         self.max_len = max_len
         self.return_target_idx = return_target_idx
+        self.duckdb_memory_limit = duckdb_memory_limit
+        self.duckdb_threads = duckdb_threads
+        self.fetch_size = fetch_size
 
         print("Loading embeddings...")
-        self.embeddings = np.load(str(embeddings_file))
+        self.embeddings = np.load(str(embeddings_file), mmap_mode="r")
 
         print("Loading track map...")
         with open(track_map_file, "rb") as f:
             self.track_map = pickle.load(f)
 
-        self.reverse_track_map = {idx: track for track, idx in self.track_map.items()}
-
     def __iter__(self):
         print("Streaming playlists...")
+        con = duckdb.connect(database=":memory:")
+        con.execute(f"PRAGMA memory_limit='{self.duckdb_memory_limit}'")
+        con.execute(f"PRAGMA threads={self.duckdb_threads}")
 
         query = f"""
             SELECT playlist_rowid, track_rowid
@@ -49,40 +50,43 @@ class PlaylistDataset(torch.utils.data.IterableDataset):
             ORDER BY playlist_rowid, position
         """
 
-        cursor = self.con.execute(query)
-
         current_playlist = []
         last_pid = None
 
-        while True:
-            rows = cursor.fetchmany(10000)
+        try:
+            cursor = con.execute(query)
 
-            if not rows:
-                break
+            while True:
+                rows = cursor.fetchmany(self.fetch_size)
 
-            for pid, track in rows:
-                idx = self.track_map.get(track)
+                if not rows:
+                    break
 
-                if idx is None:
-                    continue
+                for pid, track in rows:
+                    idx = self.track_map.get(track)
 
-                if last_pid is not None and pid != last_pid:
-                    if len(current_playlist) > 1:
-                        sample = self.process_playlist(current_playlist)
+                    if idx is None:
+                        continue
 
-                        if sample is not None:
-                            yield sample
+                    if last_pid is not None and pid != last_pid:
+                        if len(current_playlist) > 1:
+                            sample = self.process_playlist(current_playlist)
 
-                    current_playlist = []
+                            if sample is not None:
+                                yield sample
 
-                current_playlist.append(idx)
-                last_pid = pid
+                        current_playlist = []
 
-        if len(current_playlist) > 1:
-            sample = self.process_playlist(current_playlist)
+                    current_playlist.append(idx)
+                    last_pid = pid
 
-            if sample is not None:
-                yield sample
+            if len(current_playlist) > 1:
+                sample = self.process_playlist(current_playlist)
+
+                if sample is not None:
+                    yield sample
+        finally:
+            con.close()
 
     def process_playlist(self, playlist_idx_list):
         if len(playlist_idx_list) < 2:

@@ -79,43 +79,6 @@ def update_metrics(metrics, ranked_track_ids, target_track_id, k_values):
         metrics[k]["mrr"] += 1.0 / rank
 
 
-stage1_assets = load_stage1_assets()
-stage3_assets = load_stage3_assets()
-
-stage1_metrics = {k: {"hits": 0, "ndcg": 0.0, "mrr": 0.0} for k in K_VALUES}
-final_metrics = {k: {"hits": 0, "ndcg": 0.0, "mrr": 0.0} for k in K_VALUES}
-total = 0
-
-for playlist_track_ids, target_track_id in stream_eval_playlists(
-    db_path=DB_PATH,
-    stage1_track_map=stage1_assets["track_map"],
-    eval_mod=EVAL_MOD,
-    eval_remainder=EVAL_REMAINDER,
-    max_samples=NUM_SAMPLES,
-):
-    stage1_candidates = generate_stage1_candidates(
-        playlist_ids=playlist_track_ids,
-        top_k=STAGE1_CANDIDATE_K,
-        assets=stage1_assets,
-    )
-
-    stage1_candidate_ids = [item["track_id"] for item in stage1_candidates]
-    update_metrics(stage1_metrics, stage1_candidate_ids, target_track_id, K_VALUES)
-
-    final_ranked = rerank_candidates(
-        model=stage3_assets["model"],
-        playlist_track_ids=playlist_track_ids,
-        candidate_track_ids=stage1_candidate_ids,
-        filtered_track_map=stage3_assets["track_map"],
-        pad_idx=stage3_assets["pad_idx"],
-        device=stage3_assets["device"],
-    )
-
-    final_ranked_ids = [item["track_id"] for item in final_ranked]
-    update_metrics(final_metrics, final_ranked_ids, target_track_id, K_VALUES)
-    total += 1
-
-
 def print_metrics(title, metrics, total):
     print(title)
 
@@ -131,6 +94,47 @@ def print_metrics(title, metrics, total):
         )
 
 
-print(f"Evaluated samples: {total}")
-print_metrics("Stage1 candidate metrics", stage1_metrics, total)
-print_metrics("Final pipeline metrics", final_metrics, total)
+def main():
+    stage1_assets = load_stage1_assets()
+    stage3_assets = load_stage3_assets()
+
+    stage1_metrics = {k: {"hits": 0, "ndcg": 0.0, "mrr": 0.0} for k in K_VALUES}
+    final_metrics = {k: {"hits": 0, "ndcg": 0.0, "mrr": 0.0} for k in K_VALUES}
+    total = 0
+
+    for playlist_track_ids, target_track_id in stream_eval_playlists(
+        db_path=DB_PATH,
+        stage1_track_map=stage1_assets["track_map"],
+        eval_mod=EVAL_MOD,
+        eval_remainder=EVAL_REMAINDER,
+        max_samples=NUM_SAMPLES,
+    ):
+        stage1_candidates = generate_stage1_candidates(
+            playlist_ids=playlist_track_ids,
+            top_k=STAGE1_CANDIDATE_K,
+            assets=stage1_assets,
+        )
+
+        stage1_candidate_ids = [item["track_id"] for item in stage1_candidates]
+        update_metrics(stage1_metrics, stage1_candidate_ids, target_track_id, K_VALUES)
+
+        final_ranked = rerank_candidates(
+            model=stage3_assets["model"],
+            playlist_track_ids=playlist_track_ids,
+            candidate_track_ids=stage1_candidate_ids,
+            filtered_track_map=stage3_assets["track_map"],
+            pad_idx=stage3_assets["pad_idx"],
+            device=stage3_assets["device"],
+        )
+
+        final_ranked_ids = [item["track_id"] for item in final_ranked]
+        update_metrics(final_metrics, final_ranked_ids, target_track_id, K_VALUES)
+        total += 1
+
+    print(f"Evaluated samples: {total}")
+    print_metrics("Stage1 candidate metrics", stage1_metrics, total)
+    print_metrics("Final pipeline metrics", final_metrics, total)
+
+
+if __name__ == "__main__":
+    main()

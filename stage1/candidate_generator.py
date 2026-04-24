@@ -1,4 +1,4 @@
-import pickle
+﻿import pickle
 
 import numpy as np
 import torch
@@ -22,7 +22,7 @@ def load_stage1_assets(
     reverse_track_map = {idx: track_id for track_id, idx in track_map.items()}
     embeddings = np.load(embeddings_path, mmap_mode="r")
 
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         state_dict = checkpoint["model_state_dict"]
@@ -117,3 +117,4 @@ def generate_stage1_candidates(
         }
         for rank, idx in enumerate(top_indices, start=1)
     ]
+

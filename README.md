@@ -1,4 +1,4 @@
-# zsoundproject
+﻿# zsoundproject
 
 Music recommendation project organized as a multi-stage pipeline.
 
@@ -33,6 +33,8 @@ Music recommendation project organized as a multi-stage pipeline.
   `python stage0/extract_mapping.py`
 - Stage 0 artifact validation:
   `python stage0/validate_artifacts.py`
+- Track search index build:
+  `python scripts/build_track_search_index.py`
 - Stage 1 training:
   `python stage1/train_two_tower.py`
 - Stage 1 candidate generation:
@@ -49,9 +51,17 @@ Music recommendation project organized as a multi-stage pipeline.
   `python stage3/recommend_pipeline.py --playlist "10000,1178,2779"`
 - End-to-end pipeline evaluation:
   `python stage3/eval_pipeline.py`
+- End-to-end system evaluation:
+  `python stage3/eval_system.py --samples 50 --candidate-k 300 --stage2-k 100`
+- End-to-end system recommendations:
+  `python stage3/recommend_system.py --playlist "10000,1178,2779" --top-k 20`
+- Streamlit UI:
+  `streamlit run app.py`
 
 ## Notes
 
 - Shared paths are defined in [config.py](/D:/ZZZFORALL/zsoundproject/config.py).
 - The external raw Spotify parquet files are still referenced from `D:\ZZZFORALL\dbmusic`.
 - Trained artifacts are now stored under `data/processed/` and `data/embeddings/`.
+- The Streamlit app expects `data/processed/track_search_index.parquet`; build it once with `python scripts/build_track_search_index.py`.
+

@@ -1,136 +1,145 @@
+﻿import argparse
+import pickle
 import sys
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
-import duckdb
-import pickle
+from torch.utils.data import DataLoader
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import FILTERED_TRACK_ID_MAP_PKL, PLAYLIST_TRACKS_PARQUET
+from config import FILTERED_TRACK_ID_MAP_PKL, PLAYLIST_TRACKS_PARQUET, TRANSFORMER_MODEL_PT
 from stage2.dataset_sequence import SequenceDataset
 from stage2.models.transformer_model import TransformerModel
 
 
-# =========================
-# DEVICE
-# =========================
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Using device:", device)
+DEFAULT_SEQ_LEN = 20
+DEFAULT_BATCH_SIZE = 64
+DEFAULT_EPOCHS = 3
+DEFAULT_MAX_TRAIN_STEPS = 10000
+DEFAULT_MAX_EVAL_STEPS = 2000
+DEFAULT_EMBED_DIM = 256
 
 
-# =========================
-# DUCKDB (ограничение RAM)
-# =========================
-print("Connecting to DuckDB...")
-
-con = duckdb.connect()
-con.execute("PRAGMA memory_limit='16GB'")
-
-
-# =========================
-# LOAD TRACK MAP
-# =========================
-print("Loading track map...")
-
-with open(FILTERED_TRACK_ID_MAP_PKL, "rb") as f:
-    track_map = pickle.load(f)
-
-vocab_size = len(track_map)
-print("Vocab size:", vocab_size)
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train stage2 transformer next-track model.")
+    parser.add_argument("--seq-len", type=int, default=DEFAULT_SEQ_LEN)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--embed-dim", type=int, default=DEFAULT_EMBED_DIM)
+    parser.add_argument("--max-train-steps", type=int, default=DEFAULT_MAX_TRAIN_STEPS)
+    parser.add_argument("--max-eval-steps", type=int, default=DEFAULT_MAX_EVAL_STEPS)
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--checkpoint", default=str(TRANSFORMER_MODEL_PT))
+    return parser.parse_args()
 
 
-# =========================
-# DATASET
-# =========================
-dataset = SequenceDataset(
-    seq_len=20,
-    db_path=str(PLAYLIST_TRACKS_PARQUET),
-    track_map=track_map
-)
-
-loader = DataLoader(
-    dataset,
-    batch_size=64,
-    num_workers=0
-)
+def build_loader(seq_len, batch_size, num_workers, track_map):
+    dataset = SequenceDataset(
+        seq_len=seq_len,
+        db_path=str(PLAYLIST_TRACKS_PARQUET),
+        track_map=track_map,
+    )
+    return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
 
 
-# =========================
-# MODEL
-# =========================
-model = TransformerModel(vocab_size=vocab_size).to(device)
+def evaluate_recall_at_10(model, loader, device, max_eval_steps):
+    model.eval()
+    correct = 0
+    total = 0
 
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-loss_fn = nn.CrossEntropyLoss()
+    with torch.no_grad():
+        for step, (seq, target) in enumerate(loader):
+            seq = seq.to(device)
+            target = target.to(device)
 
+            logits = model(seq)
+            topk = torch.topk(logits, k=10, dim=1).indices
+            match = (topk == target.unsqueeze(1)).any(dim=1)
 
-# =========================
-# TRAIN
-# =========================
-for epoch in range(3):
+            correct += match.sum().item()
+            total += target.size(0)
 
-    total_loss = 0
+            if step >= max_eval_steps:
+                break
 
-    print("Streaming playlists...")
-
-    for step, (seq, target) in enumerate(loader):
-
-        seq = seq.to(device)
-        target = target.to(device)
-
-        logits = model(seq)
-
-        loss = loss_fn(logits, target)
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item()
-
-        if step % 500 == 0:
-            print(f"Epoch {epoch} Step {step} Loss {loss.item()}")
-
-        if step > 10000:
-            break
-
-    print(f"\n🔥 Epoch {epoch} Total Loss {total_loss}")
+    return (correct / total) if total else 0.0
 
 
-# =========================
-# EVALUATION (Recall@10)
-# =========================
-print("\nEvaluating Recall@10...")
+def main():
+    args = parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using device:", device)
 
-model.eval()
+    print("Loading track map...")
+    with open(FILTERED_TRACK_ID_MAP_PKL, "rb") as f:
+        track_map = pickle.load(f)
 
-correct = 0
-total = 0
+    vocab_size = len(track_map)
+    pad_idx = vocab_size
+    print("Vocab size:", vocab_size)
 
-with torch.no_grad():
+    loader = build_loader(args.seq_len, args.batch_size, args.num_workers, track_map)
 
-    for step, (seq, target) in enumerate(loader):
+    model = TransformerModel(vocab_size=vocab_size + 1, embed_dim=args.embed_dim).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    loss_fn = nn.CrossEntropyLoss()
 
-        seq = seq.to(device)
-        target = target.to(device)
+    for epoch in range(args.epochs):
+        model.train()
+        total_loss = 0.0
+        print(f"Epoch {epoch} training...")
 
-        logits = model(seq)
+        for step, (seq, target) in enumerate(loader):
+            seq = seq.to(device)
+            target = target.to(device)
 
-        topk = torch.topk(logits, k=10, dim=1).indices
+            logits = model(seq)
+            loss = loss_fn(logits, target)
 
-        match = (topk == target.unsqueeze(1)).any(dim=1)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-        correct += match.sum().item()
-        total += target.size(0)
+            total_loss += loss.item()
 
-        if step > 2000:
-            break
+            if step % 500 == 0:
+                print(f"Epoch {epoch} Step {step} Loss {loss.item():.6f}")
 
-recall = correct / total
-print(f"\n🎯 Recall@10: {recall}")
+            if step >= args.max_train_steps:
+                break
+
+        print(f"Epoch {epoch} Total Loss {total_loss:.6f}")
+
+    eval_loader = build_loader(args.seq_len, args.batch_size, args.num_workers, track_map)
+    recall_at_10 = evaluate_recall_at_10(model, eval_loader, device, args.max_eval_steps)
+    print(f"Recall@10: {recall_at_10:.6f}")
+
+    checkpoint_path = Path(args.checkpoint)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "vocab_size": vocab_size + 1,
+            "pad_idx": pad_idx,
+            "embed_dim": args.embed_dim,
+            "model_kwargs": {
+                "vocab_size": vocab_size + 1,
+                "embed_dim": args.embed_dim,
+            },
+            "seq_len": args.seq_len,
+            "metrics": {
+                "recall@10": recall_at_10,
+            },
+        },
+        checkpoint_path,
+    )
+    print(f"Saved checkpoint: {checkpoint_path}")
+
+
+if __name__ == "__main__":
+    main()

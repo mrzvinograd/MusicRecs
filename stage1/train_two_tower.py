@@ -1,3 +1,4 @@
+import argparse
 import sys
 from pathlib import Path
 
@@ -17,36 +18,56 @@ from stage1.evaluate_two_tower import evaluate_two_tower
 from stage1.models.two_tower import TwoTowerModel
 
 
-BATCH_SIZE = 64
-EPOCHS = 5
-LR = 1e-4
-MAX_STEPS = 10000
-NEGATIVE_CANDIDATE_POOL = 1000
-EVAL_SAMPLES = 1000
+DEFAULT_BATCH_SIZE = 32
+DEFAULT_EPOCHS = 5
+DEFAULT_LR = 1e-4
+DEFAULT_MAX_STEPS = 10000
+DEFAULT_NEGATIVE_CANDIDATE_POOL = 512
+DEFAULT_EVAL_SAMPLES = 500
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train stage1 two-tower retrieval model.")
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
+    parser.add_argument("--lr", type=float, default=DEFAULT_LR)
+    parser.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS)
+    parser.add_argument("--negative-candidate-pool", type=int, default=DEFAULT_NEGATIVE_CANDIDATE_POOL)
+    parser.add_argument("--eval-samples", type=int, default=DEFAULT_EVAL_SAMPLES)
+    return parser.parse_args()
+
+
+args = parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
-
+print(
+    "Training config:",
+    f"batch_size={args.batch_size}",
+    f"epochs={args.epochs}",
+    f"max_steps={args.max_steps}",
+    f"negative_candidate_pool={args.negative_candidate_pool}",
+    f"eval_samples={args.eval_samples}",
+)
 
 train_dataset = PlaylistDataset(return_target_idx=False)
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE)
+train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
 
 eval_dataset = PlaylistDataset(return_target_idx=True)
 
 
 model = TwoTowerModel().to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=LR)
+optimizer = optim.Adam(model.parameters(), lr=args.lr)
 loss_fn = nn.BCEWithLogitsLoss()
 
 
-for epoch in range(EPOCHS):
+for epoch in range(args.epochs):
     model.train()
     total_loss = 0.0
 
     for step, (playlist, target) in enumerate(train_loader):
-        if step >= MAX_STEPS:
+        if step >= args.max_steps:
             break
 
         playlist = playlist.to(device)
@@ -60,7 +81,7 @@ for epoch in range(EPOCHS):
         rand_idx = torch.randint(
             0,
             train_dataset.embeddings.shape[0],
-            (NEGATIVE_CANDIDATE_POOL,),
+            (args.negative_candidate_pool,),
         )
         candidates = torch.tensor(
             train_dataset.embeddings[rand_idx],
@@ -94,8 +115,8 @@ for epoch in range(EPOCHS):
         model=model,
         dataset=eval_dataset,
         k_values=(10, 50),
-        num_samples=EVAL_SAMPLES,
-        candidate_pool_size=NEGATIVE_CANDIDATE_POOL,
+        num_samples=args.eval_samples,
+        candidate_pool_size=args.negative_candidate_pool,
     )
 
     print(
