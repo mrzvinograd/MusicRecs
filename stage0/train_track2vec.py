@@ -73,7 +73,7 @@ model.build_vocab(sentences)
 model.train(
     sentences,
     total_examples=model.corpus_count,
-    epochs=10
+    epochs=30
 )
 
 model.save(str(TRACK2VEC_MODEL))

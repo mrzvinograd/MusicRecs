@@ -19,7 +19,7 @@ from stage3.models.model_ranking import RankingModel
 
 
 BATCH_SIZE = 64
-EPOCHS = 6
+EPOCHS = 15
 MAX_STEPS = 15000
 NUM_NEG = 8
 DB_PATH = str(PLAYLIST_TRACKS_PARQUET)
