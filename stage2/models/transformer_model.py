@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class TransformerModel(nn.Module):
@@ -26,9 +27,10 @@ class TransformerModel(nn.Module):
             num_layers=2,
         )
 
-        self.fc = nn.Linear(embed_dim, vocab_size)
-
     def forward(self, input_ids):
+        return self.full_logits(input_ids)
+
+    def encode_sequence(self, input_ids):
         seq_len = input_ids.size(1)
         positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
 
@@ -48,4 +50,17 @@ class TransformerModel(nn.Module):
             last_positions = (valid_lengths - 1).unsqueeze(1).unsqueeze(2)
             pooled = hidden.gather(1, last_positions.expand(-1, 1, hidden.size(-1))).squeeze(1)
 
-        return self.fc(pooled)
+        return F.normalize(pooled, dim=-1)
+
+    def encode_items(self, item_ids):
+        return F.normalize(self.embedding(item_ids), dim=-1)
+
+    def score_candidates(self, input_ids, candidate_ids):
+        sequence_vec = self.encode_sequence(input_ids)
+        candidate_vec = self.encode_items(candidate_ids)
+        return torch.einsum("bd,bkd->bk", sequence_vec, candidate_vec)
+
+    def full_logits(self, input_ids):
+        sequence_vec = self.encode_sequence(input_ids)
+        item_matrix = F.normalize(self.embedding.weight, dim=-1)
+        return sequence_vec @ item_matrix.T
