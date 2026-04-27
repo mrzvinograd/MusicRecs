@@ -158,6 +158,7 @@ def run_pipeline(playlist_track_ids, candidate_k, stage2_k, top_k):
             track_map=stage2_assets["track_map"],
             pad_idx=stage2_assets["pad_idx"],
             device=stage2_assets["device"],
+            max_len=stage2_assets["seq_len"],
         )
         stage2_ids = sorted(stage1_ids, key=lambda track_id: stage2_scores.get(track_id, 0.0), reverse=True)[:stage2_k]
     else:

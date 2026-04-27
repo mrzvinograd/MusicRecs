@@ -58,6 +58,7 @@ def run_full_pipeline(
         track_map=stage2_assets["track_map"],
         pad_idx=stage2_assets["pad_idx"],
         device=stage2_assets["device"],
+        max_len=stage2_assets["seq_len"],
     )
 
     # ---- Feature building ----

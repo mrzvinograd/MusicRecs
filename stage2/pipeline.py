@@ -25,12 +25,24 @@ def load_stage2_assets(
         state_dict = checkpoint["model_state_dict"]
         model_kwargs = checkpoint.get(
             "model_kwargs",
-            {"vocab_size": checkpoint.get("vocab_size", len(track_map) + 1), "embed_dim": checkpoint.get("embed_dim", 256)},
+            {
+                "vocab_size": checkpoint.get("vocab_size", len(track_map) + 1),
+                "embed_dim": checkpoint.get("embed_dim", 256),
+                "max_seq_len": checkpoint.get("seq_len", 20),
+                "padding_idx": checkpoint.get("pad_idx", pad_idx),
+            },
         )
         pad_idx = checkpoint.get("pad_idx", pad_idx)
+        seq_len = checkpoint.get("seq_len", model_kwargs.get("max_seq_len", 20))
     else:
         state_dict = checkpoint
-        model_kwargs = {"vocab_size": len(track_map) + 1, "embed_dim": 256}
+        model_kwargs = {
+            "vocab_size": len(track_map) + 1,
+            "embed_dim": 256,
+            "max_seq_len": 20,
+            "padding_idx": pad_idx,
+        }
+        seq_len = 20
 
     model = TransformerModel(**model_kwargs).to(device)
     model.load_state_dict(state_dict)
@@ -41,4 +53,5 @@ def load_stage2_assets(
         "model": model,
         "track_map": track_map,
         "pad_idx": pad_idx,
+        "seq_len": seq_len,
     }

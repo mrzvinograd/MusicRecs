@@ -12,17 +12,18 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import FILTERED_TRACK_ID_MAP_PKL, PLAYLIST_TRACKS_PARQUET, TRANSFORMER_MODEL_PT
+from config import FILTERED_TRACK_ID_MAP_PKL, PLAYLIST_TRACKS_FILTERED_PARQUET, TRANSFORMER_MODEL_PT
 from stage2.dataset_sequence import SequenceDataset
 from stage2.models.transformer_model import TransformerModel
 
 
 DEFAULT_SEQ_LEN = 20
 DEFAULT_BATCH_SIZE = 64
-DEFAULT_EPOCHS = 20
+DEFAULT_EPOCHS = 5
 DEFAULT_MAX_TRAIN_STEPS = 20000
 DEFAULT_MAX_EVAL_STEPS = 4000
 DEFAULT_EMBED_DIM = 256
+DEFAULT_LR = 3e-4
 
 
 def parse_args():
@@ -30,7 +31,7 @@ def parse_args():
     parser.add_argument("--seq-len", type=int, default=DEFAULT_SEQ_LEN)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=DEFAULT_LR)
     parser.add_argument("--embed-dim", type=int, default=DEFAULT_EMBED_DIM)
     parser.add_argument("--max-train-steps", type=int, default=DEFAULT_MAX_TRAIN_STEPS)
     parser.add_argument("--max-eval-steps", type=int, default=DEFAULT_MAX_EVAL_STEPS)
@@ -42,7 +43,7 @@ def parse_args():
 def build_loader(seq_len, batch_size, num_workers, track_map):
     dataset = SequenceDataset(
         seq_len=seq_len,
-        db_path=str(PLAYLIST_TRACKS_PARQUET),
+        db_path=str(PLAYLIST_TRACKS_FILTERED_PARQUET),
         track_map=track_map,
     )
     return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
@@ -86,7 +87,12 @@ def main():
 
     loader = build_loader(args.seq_len, args.batch_size, args.num_workers, track_map)
 
-    model = TransformerModel(vocab_size=vocab_size + 1, embed_dim=args.embed_dim).to(device)
+    model = TransformerModel(
+        vocab_size=vocab_size + 1,
+        embed_dim=args.embed_dim,
+        max_seq_len=args.seq_len,
+        padding_idx=pad_idx,
+    ).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.CrossEntropyLoss()
 
@@ -130,6 +136,8 @@ def main():
             "model_kwargs": {
                 "vocab_size": vocab_size + 1,
                 "embed_dim": args.embed_dim,
+                "max_seq_len": args.seq_len,
+                "padding_idx": pad_idx,
             },
             "seq_len": args.seq_len,
             "metrics": {

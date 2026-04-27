@@ -8,7 +8,7 @@ def score_sequence_model(
     track_map,
     pad_idx,
     device,
-    max_len=50,
+    max_len=20,
 ):
     model.eval()
 
