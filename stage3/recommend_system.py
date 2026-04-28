@@ -12,7 +12,7 @@ from stage1.candidate_generator import generate_stage1_candidates, load_stage1_a
 from stage2.model_infer import score_sequence_model
 from stage2.pipeline import load_stage2_assets
 from stage3.pipeline import load_stage3_assets, rerank_candidates
-from utils.music_metadata import fetch_track_metadata
+from utils.music_metadata import fetch_track_metadata, resolve_track_token
 
 
 def parse_args():
@@ -75,7 +75,7 @@ def print_section(title, items):
 
 def main():
     args = parse_args()
-    playlist_track_ids = [int(x.strip()) for x in args.playlist.split(",") if x.strip()]
+    playlist_track_ids = [resolve_track_token(x.strip()) for x in args.playlist.split(",") if x.strip()]
 
     if not playlist_track_ids:
         raise ValueError("Playlist is empty. Provide at least one track id.")
