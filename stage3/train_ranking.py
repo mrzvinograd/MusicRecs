@@ -12,23 +12,25 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import FILTERED_TRACK_ID_MAP_PKL, PLAYLIST_TRACKS_PARQUET, RANKING_MODEL_PT
+from config import FILTERED_TRACK_ID_MAP_PKL, PLAYLIST_TRACKS_FILTERED_PARQUET, RANKING_MODEL_PT
 from stage3.dataset_ranking import RankingDataset, ranking_collate
 from stage3.evaluate_ranking import evaluate_ranking
 from stage3.models.model_ranking import RankingModel
 
 
 BATCH_SIZE = 64
-EPOCHS = 15
+EPOCHS = 5
 MAX_STEPS = 15000
 NUM_NEG = 8
-DB_PATH = str(PLAYLIST_TRACKS_PARQUET)
+DB_PATH = str(PLAYLIST_TRACKS_FILTERED_PARQUET)
 EVAL_MOD = 20
 EVAL_REMAINDER = 0
 USE_HARD_NEGATIVES = True
 TRAIN_HARD_NEGATIVE_RATIO = 0.4
 EVAL_HARD_NEGATIVE_RATIO = 0.7
 HARD_NEGATIVE_POOL_SIZE = 128
+LR = 3e-4
+EARLY_STOP_PATIENCE = 3
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -63,8 +65,10 @@ loader = DataLoader(
 
 model = RankingModel(vocab_size + 1, padding_idx=pad_idx).to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=LR)
 loss_fn = nn.BCEWithLogitsLoss()
+best_recall = float("-inf")
+epochs_without_improvement = 0
 
 
 for epoch in range(EPOCHS):
@@ -118,18 +122,28 @@ for epoch in range(EPOCHS):
         f"MRR@10={metrics['mrr@10']:.4f}"
     )
 
+    if metrics["recall@10"] > best_recall:
+        best_recall = metrics["recall@10"]
+        epochs_without_improvement = 0
+        torch.save(
+            {
+                "model_state_dict": model.state_dict(),
+                "vocab_size": vocab_size + 1,
+                "pad_idx": pad_idx,
+                "model_kwargs": {
+                    "vocab_size": vocab_size + 1,
+                    "padding_idx": pad_idx,
+                },
+                "metrics": metrics,
+                "epoch": epoch,
+            },
+            RANKING_MODEL_PT,
+        )
+        print(f"Saved best checkpoint to {RANKING_MODEL_PT}")
+    else:
+        epochs_without_improvement += 1
+        print(f"No validation improvement for {epochs_without_improvement} epoch(s).")
 
-torch.save(
-    {
-        "model_state_dict": model.state_dict(),
-        "vocab_size": vocab_size + 1,
-        "pad_idx": pad_idx,
-        "model_kwargs": {
-            "vocab_size": vocab_size + 1,
-            "padding_idx": pad_idx,
-        },
-    },
-    RANKING_MODEL_PT,
-)
-
-print(f"Saved {RANKING_MODEL_PT}")
+        if epochs_without_improvement >= EARLY_STOP_PATIENCE:
+            print("Early stopping triggered.")
+            break
