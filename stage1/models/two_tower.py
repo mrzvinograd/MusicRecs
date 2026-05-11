@@ -1,3 +1,7 @@
+# ФИО автора: Бордунов Юрий Сергеевич
+# Тема ВКР: Разработка рекомендательной системы музыкального сервиса
+# Модель: Stage1 Two-Tower Retrieval
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

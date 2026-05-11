@@ -1,3 +1,7 @@
+# ФИО автора: Бордунов Юрий Сергеевич
+# Тема ВКР: Разработка рекомендательной системы музыкального сервиса
+# Модель: Stage2 Transformer Sequence Model
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

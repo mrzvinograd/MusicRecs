@@ -1,6 +1,6 @@
 import streamlit as st
 
-from config import TRACK_SEARCH_INDEX_PARQUET, TRANSFORMER_MODEL_PT
+from config import STAGE1_TRACK_VECTORS_NPY, TRACK_SEARCH_INDEX_PARQUET, TRANSFORMER_MODEL_PT
 from stage1.candidate_generator import generate_stage1_candidates, load_stage1_assets
 from stage2.model_infer import score_sequence_model
 from stage2.pipeline import load_stage2_assets
@@ -8,7 +8,7 @@ from stage3.pipeline import load_stage3_assets, rerank_candidates
 from utils.music_metadata import fetch_track_metadata, resolve_track_token
 
 
-st.set_page_config(page_title="zsoundproject", layout="wide")
+st.set_page_config(page_title="MusicRecs", layout="wide")
 
 
 @st.cache_resource
@@ -58,13 +58,13 @@ def replace_playlist_from_text(raw_text):
 
 
 def render_playlist_editor():
-    st.subheader("Playlist Input")
-    st.caption("Paste Spotify track IDs such as `7AB0cUXnzuSlAnyHOqmrZr`. One per line or comma-separated.")
+    st.subheader("Входной плейлист")
+    st.caption("Вставьте Spotify track ID, например `7AB0cUXnzuSlAnyHOqmrZr`: по одному в строке или через запятую.")
 
     if not TRACK_SEARCH_INDEX_PARQUET.exists():
         st.warning(
-            "Spotify ID index is missing. Build it once with "
-            "`python scripts/build_track_search_index.py`, then restart Streamlit."
+            "Индекс Spotify ID не найден. Соберите его один раз командой "
+            "`python scripts/build_track_search_index.py`, затем перезапустите приложение."
         )
 
     existing_metadata = fetch_track_metadata(st.session_state.playlist_ids) if st.session_state.playlist_ids else {}
@@ -73,14 +73,14 @@ def render_playlist_editor():
         for track_id in st.session_state.playlist_ids
     ]
 
-    with st.expander("Paste Spotify Track IDs", expanded=True):
+    with st.expander("Вставить Spotify Track ID", expanded=True):
         raw_ids = st.text_area(
             "Spotify track IDs",
             value="\n".join(current_spotify_ids),
             height=120,
             help="Use Spotify track IDs only. Example: 7AB0cUXnzuSlAnyHOqmrZr",
         )
-        if st.button("Apply IDs"):
+        if st.button("Применить ID"):
             try:
                 replace_playlist_from_text(raw_ids)
             except ValueError as exc:
@@ -89,10 +89,10 @@ def render_playlist_editor():
                 st.rerun()
 
     playlist_ids = st.session_state.playlist_ids
-    st.caption(f"Selected tracks: {len(playlist_ids)}")
+    st.caption(f"Выбрано треков: {len(playlist_ids)}")
 
     if not playlist_ids:
-        st.warning("Add at least one track to build recommendations.")
+        st.warning("Добавьте хотя бы один трек, чтобы получить рекомендации.")
         return playlist_ids
 
     metadata = existing_metadata if playlist_ids else {}
@@ -102,12 +102,12 @@ def render_playlist_editor():
         cols = st.columns([8, 1])
         with cols[0]:
             st.write(
-                f"{index}. **{meta.get('track_name', 'Unknown Track')}** - "
-                f"{meta.get('artist_names', 'Unknown Artist')}  \n"
+                f"{index}. **{meta.get('track_name', 'Неизвестный трек')}** - "
+                f"{meta.get('artist_names', 'Неизвестный исполнитель')}  \n"
                 f"`track_rowid={track_id}`  `spotify_id={meta.get('spotify_track_id', 'unknown')}`"
             )
         with cols[1]:
-            if st.button("Remove", key=f"remove_{track_id}"):
+            if st.button("Удалить", key=f"remove_{track_id}"):
                 remove_track(track_id)
                 st.rerun()
 
@@ -125,10 +125,10 @@ def enrich_items(track_ids, score_lookup):
                 "rank": rank,
                 "track_id": track_id,
                 "score": float(score_lookup.get(track_id, 0.0)),
-                "track_name": meta.get("track_name", "Unknown Track"),
-                "artist_names": meta.get("artist_names", "Unknown Artist"),
-                "album_name": meta.get("album_name", "Unknown Album"),
-                "spotify_track_id": meta.get("spotify_track_id", "Unknown Spotify ID"),
+                "track_name": meta.get("track_name", "Неизвестный трек"),
+                "artist_names": meta.get("artist_names", "Неизвестный исполнитель"),
+                "album_name": meta.get("album_name", "Неизвестный альбом"),
+                "spotify_track_id": meta.get("spotify_track_id", "Неизвестный Spotify ID"),
             }
         )
 
@@ -188,42 +188,48 @@ def run_pipeline(playlist_track_ids, candidate_k, stage2_k, top_k):
 def main():
     ensure_state()
 
-    st.title("zsoundproject MVP")
-    st.write("Build a playlist from track IDs or search results, then run the full recommendation pipeline.")
+    st.title("MusicRecs")
+    st.write("Соберите плейлист из Spotify track ID и запустите рекомендательную систему.")
+
+    if not STAGE1_TRACK_VECTORS_NPY.exists():
+        st.info(
+            "Для быстрых рекомендаций соберите кеш stage1 один раз: "
+            "`python scripts/build_stage1_track_vectors.py`. Без кеша первый этап будет считать весь каталог заново."
+        )
 
     playlist_ids = render_playlist_editor()
 
     col1, col2, col3 = st.columns(3)
     with col1:
         candidate_k = st.number_input(
-            "Stage1 candidate-k",
+            "Кандидатов Stage1",
             min_value=50,
             max_value=1000,
             value=300,
             step=50,
-            help="How many initial candidates stage1 retrieves from the full catalog before later reranking.",
+            help="Сколько первичных кандидатов stage1 берёт из каталога перед последующей сортировкой.",
         )
     with col2:
         stage2_k = st.number_input(
-            "Stage2 keep-k",
+            "Оставить после Stage2",
             min_value=10,
             max_value=500,
             value=100,
             step=10,
-            help="How many of the stage1 candidates survive after stage2 sequence scoring and get passed to stage3.",
+            help="Сколько кандидатов после stage2 передаётся в stage3.",
         )
     with col3:
         top_k = st.number_input(
-            "Display top-k",
+            "Показать top-k",
             min_value=5,
             max_value=100,
             value=20,
             step=5,
-            help="How many final recommendations to show in the UI after the full pipeline finishes.",
+            help="Сколько финальных рекомендаций показать после полного пайплайна.",
         )
 
-    if st.button("Run Recommendations", type="primary", disabled=not playlist_ids):
-        with st.spinner("Running stage1/stage2/stage3..."):
+    if st.button("Получить рекомендации", type="primary", disabled=not playlist_ids):
+        with st.spinner("Запускаю stage1/stage2/stage3..."):
             result = run_pipeline(
                 playlist_track_ids=playlist_ids,
                 candidate_k=int(candidate_k),
@@ -231,11 +237,11 @@ def main():
                 top_k=int(top_k),
             )
 
-        st.write(f"Stage2 enabled: {'yes' if result['stage2_enabled'] else 'no'}")
+        st.write(f"Stage2 включён: {'да' if result['stage2_enabled'] else 'нет'}")
         if result["stage2_error"]:
-            st.info(f"Stage2 note: {result['stage2_error']}")
+            st.info(f"Примечание stage2: {result['stage2_error']}")
 
-        tabs = st.tabs(["Stage1", "Stage2", "Final"])
+        tabs = st.tabs(["Stage1", "Stage2", "Финальные рекомендации"])
         with tabs[0]:
             st.dataframe(result["stage1_top"], use_container_width=True)
         with tabs[1]:
