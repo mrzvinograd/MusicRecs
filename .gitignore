@@ -38,7 +38,6 @@ desktop.ini
 *.log
 
 # Runtime checkpoints / model weights / generated artifacts
-*.pt
 *.pth
 *.ckpt
 *.npy
@@ -49,6 +48,9 @@ desktop.ini
 data/processed/*
 data/embeddings/*
 data/raw/*
+!data/processed/*.pt
+!data/embeddings/*.pt
+!data/raw/*.pt
 !data/raw/.gitkeep
 
 # If you later want to version small metadata artifacts selectively,
