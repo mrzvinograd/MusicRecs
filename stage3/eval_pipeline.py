@@ -20,50 +20,69 @@ EVAL_REMAINDER = 0
 NUM_SAMPLES = 200
 STAGE1_CANDIDATE_K = 300
 K_VALUES = (10, 50)
+DUCKDB_MEMORY_LIMIT = "16GB"
 
 
-def stream_eval_playlists(db_path, stage1_track_map, eval_mod=20, eval_remainder=0, max_samples=200):
+def stream_eval_playlists(
+    db_path,
+    stage1_track_map,
+    eval_mod=20,
+    eval_remainder=0,
+    max_samples=200,
+    duckdb_memory_limit=DUCKDB_MEMORY_LIMIT,
+):
     con = duckdb.connect()
-    con.execute("PRAGMA memory_limit='16GB'")
 
-    query = f"""
-    SELECT playlist_rowid, track_rowid
-    FROM read_parquet('{db_path}')
-    WHERE track_rowid IS NOT NULL
-    ORDER BY playlist_rowid, position
-    """
+    try:
+        # Ограничиваем память DuckDB, чтобы чтение большого parquet-файла не заняло
+        # всю оперативную память компьютера во время оценки качества.
+        con.execute(f"PRAGMA memory_limit='{duckdb_memory_limit}'")
+        con.execute("PRAGMA preserve_insertion_order=false")
 
-    cursor = con.execute(query)
+        query = f"""
+        SELECT playlist_rowid, track_rowid
+        FROM read_parquet('{db_path}')
+        WHERE track_rowid IS NOT NULL
+        ORDER BY playlist_rowid, position
+        """
 
-    current_playlist = []
-    last_pid = None
-    yielded = 0
+        cursor = con.execute(query)
 
-    while True:
-        batch = cursor.fetchmany(100000)
+        current_playlist = []
+        last_pid = None
+        yielded = 0
 
-        if not batch:
-            break
+        while True:
+            # Данные читаются пакетами, а не целиком в память. Это важно для
+            # устойчивого запуска на машине с ограничением по ОЗУ 16 ГБ.
+            batch = cursor.fetchmany(100000)
 
-        for pid, track in batch:
-            if track not in stage1_track_map:
-                continue
+            if not batch:
+                break
 
-            if last_pid is not None and pid != last_pid:
-                if len(current_playlist) > 1 and last_pid % eval_mod == eval_remainder:
-                    yield current_playlist[:-1], current_playlist[-1]
-                    yielded += 1
+            for pid, track in batch:
+                if track not in stage1_track_map:
+                    continue
 
-                    if yielded >= max_samples:
-                        return
+                if last_pid is not None and pid != last_pid:
+                    # Для оценки берём задачу next-track prediction: последние
+                    # треки плейлиста считаются целевыми, предыдущие - контекстом.
+                    if len(current_playlist) > 1 and last_pid % eval_mod == eval_remainder:
+                        yield current_playlist[:-1], current_playlist[-1]
+                        yielded += 1
 
-                current_playlist = []
+                        if yielded >= max_samples:
+                            return
 
-            current_playlist.append(track)
-            last_pid = pid
+                    current_playlist = []
 
-    if len(current_playlist) > 1 and last_pid % eval_mod == eval_remainder and yielded < max_samples:
-        yield current_playlist[:-1], current_playlist[-1]
+                current_playlist.append(track)
+                last_pid = pid
+
+        if len(current_playlist) > 1 and last_pid % eval_mod == eval_remainder and yielded < max_samples:
+            yield current_playlist[:-1], current_playlist[-1]
+    finally:
+        con.close()
 
 
 def update_metrics(metrics, ranked_track_ids, target_track_id, k_values):
@@ -83,7 +102,7 @@ def print_metrics(title, metrics, total):
     print(title)
 
     if total == 0:
-        print("No evaluation samples.")
+        print("Нет примеров для оценки.")
         return
 
     for k in K_VALUES:
@@ -131,9 +150,10 @@ def main():
         update_metrics(final_metrics, final_ranked_ids, target_track_id, K_VALUES)
         total += 1
 
-    print(f"Evaluated samples: {total}")
-    print_metrics("Stage1 candidate metrics", stage1_metrics, total)
-    print_metrics("Final pipeline metrics", final_metrics, total)
+    print(f"Оценено примеров: {total}")
+    print(f"Лимит памяти DuckDB: {DUCKDB_MEMORY_LIMIT}")
+    print_metrics("Метрики кандидатов Stage1", stage1_metrics, total)
+    print_metrics("Метрики финального пайплайна", final_metrics, total)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from config import PLAYLIST_TRACKS_PARQUET, TRANSFORMER_MODEL_PT
 from stage1.candidate_generator import generate_stage1_candidates, load_stage1_assets
 from stage2.model_infer import score_sequence_model
 from stage2.pipeline import load_stage2_assets
-from stage3.eval_pipeline import stream_eval_playlists
+from stage3.eval_pipeline import DUCKDB_MEMORY_LIMIT, stream_eval_playlists
 from stage3.pipeline import load_stage3_assets, rerank_candidates
 
 
@@ -20,16 +20,18 @@ DEFAULT_K_VALUES = (10, 50)
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Evaluate recall/NDCG/MRR for stage1, stage2, and full pipeline on holdout playlists."
+        description="Оценка Recall/NDCG/MRR для Stage1, Stage2 и полного пайплайна на контрольных плейлистах."
     )
-    parser.add_argument("--samples", type=int, default=50, help="How many evaluation playlists to use.")
-    parser.add_argument("--candidate-k", type=int, default=300, help="How many stage1 candidates to generate.")
-    parser.add_argument("--stage2-k", type=int, default=100, help="How many candidates to keep after stage2.")
-    parser.add_argument("--k-values", default="10,50", help="Comma-separated K values, for example 10,50.")
+    parser.add_argument("--samples", type=int, default=50, help="Количество плейлистов для оценки.")
+    parser.add_argument("--candidate-k", type=int, default=300, help="Сколько кандидатов генерировать на Stage1.")
+    parser.add_argument("--stage2-k", type=int, default=100, help="Сколько кандидатов оставить после Stage2.")
+    parser.add_argument("--k-values", default="10,50", help="Значения K через запятую, например 10,50.")
     return parser.parse_args()
 
 
 def update_metrics(metrics, ranked_track_ids, target_track_id, k_values):
+    # Целевой трек считается релевантным, если он попал в первые K позиций
+    # ранжированного списка. NDCG и MRR дополнительно учитывают его позицию.
     for k in k_values:
         topk = ranked_track_ids[:k]
         if target_track_id not in topk:
@@ -74,6 +76,7 @@ def main():
         db_path=str(PLAYLIST_TRACKS_PARQUET),
         stage1_track_map=stage1_assets["track_map"],
         max_samples=args.samples,
+        duckdb_memory_limit=DUCKDB_MEMORY_LIMIT,
     ):
         stage1_candidates = generate_stage1_candidates(
             playlist_ids=playlist_track_ids,
@@ -111,13 +114,14 @@ def main():
         update_metrics(final_metrics, final_ids, target_track_id, k_values)
         total += 1
 
-    print(f"Evaluated playlists: {total}")
-    print(f"Stage2 enabled: {'yes' if stage2_available else 'no'}")
-    print("\nStage1 metrics:")
+    print(f"Оценено плейлистов: {total}")
+    print(f"Stage2 включён: {'да' if stage2_available else 'нет'}")
+    print(f"Лимит памяти DuckDB: {DUCKDB_MEMORY_LIMIT}")
+    print("\nМетрики Stage1:")
     print(format_metrics(stage1_metrics, total, k_values))
-    print("\nStage2 metrics:")
+    print("\nМетрики Stage2:")
     print(format_metrics(stage2_metrics, total, k_values))
-    print("\nFull pipeline metrics:")
+    print("\nМетрики полного пайплайна:")
     print(format_metrics(final_metrics, total, k_values))
 
 

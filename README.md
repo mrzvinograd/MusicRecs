@@ -90,6 +90,22 @@ python scripts/build_stage1_track_vectors.py
 python stage3/recommend_system.py --playlist "10000,1178,2779" --top-k 20
 ```
 
+Оценка качества рекомендаций по Recall, NDCG и MRR:
+
+```bash
+python evaluate_quality.py --samples 50 --candidate-k 300 --stage2-k 100 --k-values 10,50
+```
+
+Скрипт также выводит метрики сходства рекомендаций с исходным плейлистом по `track2vec`-эмбеддингам и аудио-признакам, а рядом показывает random baseline. Эти показатели полезны для оценки музыкального "вайба", когда точное совпадение со скрытым следующим треком слишком строго.
+
+Во время чтения parquet-файлов для оценки используется ограничение памяти DuckDB `16GB`.
+
+Сохранение таблицы метрик для отчёта:
+
+```bash
+python evaluate_quality.py --samples 50 --output data/processed/quality_metrics.csv
+```
+
 Запуск UI:
 
 ```bash
